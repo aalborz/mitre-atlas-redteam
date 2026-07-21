@@ -28,6 +28,35 @@ def _read_log(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def test_import_module_snippet_falls_back_to_default_install_path():
+    snippet = atomic_red_team._import_module_snippet()
+    # The official installer's default -InstallPath isn't on PSModulePath, so a
+    # fresh PowerShell process needs an explicit fallback import from it.
+    assert "Get-Module -ListAvailable -Name Invoke-AtomicRedTeam" in snippet
+    assert "AtomicRedTeam/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1" in snippet
+
+
+def test_execute_command_imports_module_before_running_test(monkeypatch, tmp_path):
+    monkeypatch.setattr(atomic_red_team, "_find_powershell", lambda: "pwsh")
+    monkeypatch.setattr(atomic_red_team, "_powershell_module_available", lambda exe: True)
+
+    captured_command = {}
+
+    def fake_run(cmd, **kwargs):
+        captured_command["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(atomic_red_team.subprocess, "run", fake_run)
+
+    run_technique(
+        "T1082", "localhost", _scope(), execute=True, audit_log_path=tmp_path / "audit.log"
+    )
+
+    joined = " ".join(captured_command["cmd"])
+    assert "Import-Module Invoke-AtomicRedTeam" in joined
+    assert "Invoke-AtomicTest T1082" in joined
+
+
 def test_dry_run_never_invokes_subprocess(monkeypatch, tmp_path):
     called = {"count": 0}
     monkeypatch.setattr(

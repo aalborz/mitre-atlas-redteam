@@ -36,20 +36,44 @@ def _find_powershell() -> str | None:
     return shutil.which("pwsh") or shutil.which("powershell")
 
 
+def _import_module_snippet() -> str:
+    """The official install-atomicredteam.ps1 script's default -InstallPath
+    (~/AtomicRedTeam) is not on PSModulePath, so `Get-Module -ListAvailable`
+    and a bare `Invoke-AtomicTest` call both fail in a fresh PowerShell
+    process even when the module is installed. Try the normal module lookup
+    first (covers installs done via Install-Module or a custom PSModulePath
+    entry), then fall back to importing directly from that default path."""
+    return (
+        "if (Get-Module -ListAvailable -Name Invoke-AtomicRedTeam) { "
+        "Import-Module Invoke-AtomicRedTeam -ErrorAction SilentlyContinue "
+        "} else { "
+        "$default = Join-Path $HOME "
+        "'AtomicRedTeam/invoke-atomicredteam/Invoke-AtomicRedTeam.psd1'; "
+        "if (Test-Path $default) { Import-Module $default -ErrorAction SilentlyContinue } "
+        "}"
+    )
+
+
+def _atomics_folder_expr() -> str:
+    """Invoke-AtomicTest's own built-in default (C:\\AtomicRedTeam\\atomics)
+    does not match where the official installer actually puts things by
+    default (~/AtomicRedTeam/atomics) -- pick whichever one actually exists,
+    preferring the module's hardcoded default if both happen to be present."""
+    return (
+        "$(if (Test-Path 'C:\\AtomicRedTeam\\atomics') { 'C:\\AtomicRedTeam\\atomics' } "
+        "else { Join-Path $HOME 'AtomicRedTeam/atomics' })"
+    )
+
+
 def _powershell_module_available(exe: str) -> bool:
+    command = _import_module_snippet() + "; if (Get-Module -Name Invoke-AtomicRedTeam) { 'OK' }"
     result = subprocess.run(
-        [
-            exe,
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-Module -ListAvailable -Name Invoke-AtomicRedTeam",
-        ],
+        [exe, "-NoProfile", "-NonInteractive", "-Command", command],
         capture_output=True,
         text=True,
         timeout=30,
     )
-    return bool(result.stdout.strip())
+    return "OK" in result.stdout
 
 
 def run_technique(
@@ -120,7 +144,11 @@ def run_technique(
         )
         raise AtomicRedTeamNotAvailableError()
 
-    command_parts = [f"Invoke-AtomicTest {technique_id}"]
+    command_parts = [
+        _import_module_snippet() + ";",
+        f"Invoke-AtomicTest {technique_id}",
+        f"-PathToAtomicsFolder {_atomics_folder_expr()}",
+    ]
     if test_numbers:
         command_parts.append(f"-TestNumbers {','.join(str(n) for n in test_numbers)}")
     if cleanup:
