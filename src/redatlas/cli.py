@@ -22,10 +22,14 @@ chat_app = typer.Typer(add_completion=False, help="Interactive red-team advisor 
 coverage_app = typer.Typer(
     add_completion=False, help="Coverage/gap dashboard against your detections."
 )
+exec_app = typer.Typer(
+    add_completion=False, help="Execution hooks (Atomic Red Team), gated by authorization."
+)
 app.add_typer(data_app, name="data")
 app.add_typer(model_app, name="model")
 app.add_typer(chat_app, name="chat")
 app.add_typer(coverage_app, name="coverage")
+app.add_typer(exec_app, name="exec")
 
 console = Console()
 
@@ -218,6 +222,65 @@ def chat_start(
     except MissingAPIKeyError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
+
+
+@exec_app.command("run")
+def exec_run(
+    technique_id: str,
+    target: str = typer.Option(
+        "localhost", help="Target host. Only 'localhost' is supported for --execute in this MVP."
+    ),
+    authorization: Path = typer.Option(
+        Path("authorization.yaml"), help="Path to the authorization file."
+    ),
+    test_number: list[int] = typer.Option(
+        None, "--test-number", help="Specific Atomic test number(s) to run."
+    ),
+    execute: bool = typer.Option(
+        False, help="Actually run the test. Without this, only validates authorization (dry run)."
+    ),
+    cleanup: bool = typer.Option(False, help="Run the Atomic test's cleanup commands."),
+) -> None:
+    """Run (or dry-run) an Atomic Red Team test, gated by an authorization file."""
+    from redatlas.exec.atomic_red_team import AtomicRedTeamNotAvailableError, run_technique
+    from redatlas.exec.authorization import AuthorizationError, load_authorization
+
+    try:
+        scope = load_authorization(authorization)
+    except AuthorizationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        result = run_technique(
+            technique_id,
+            target,
+            scope,
+            test_numbers=test_number or None,
+            execute=execute,
+            cleanup=cleanup,
+        )
+    except AuthorizationError as exc:
+        console.print(f"[red]Authorization refused:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    except (AtomicRedTeamNotAvailableError, NotImplementedError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    if result.dry_run:
+        console.print(
+            f"[yellow]Dry run[/yellow]: authorization OK for {technique_id} against {target}. "
+            "Pass --execute to actually run it."
+        )
+        return
+
+    console.print(
+        f"[green]Executed[/green] {technique_id} against {target}, exit code {result.return_code}"
+    )
+    if result.stdout:
+        console.print(result.stdout)
+    if result.stderr:
+        console.print(f"[red]{result.stderr}[/red]")
 
 
 if __name__ == "__main__":

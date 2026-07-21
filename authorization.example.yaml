@@ -1,0 +1,28 @@
+# Template for redatlas's execution-hook authorization gate.
+#
+# Copy this file to `authorization.yaml` (gitignored -- never commit a real one)
+# and fill it in for your specific engagement before `redatlas exec run
+# --execute` will do anything. Every field is required. Execution is refused
+# if this file is missing, malformed, expired, or the target isn't allow-listed.
+#
+# This is NOT a substitute for whatever formal authorization process your
+# organization or client already requires (e.g. a signed rules-of-engagement
+# document) -- it's a machine-enforced guardrail on top of that, not instead
+# of it. Only use this against systems you own or are explicitly authorized
+# to test.
+
+engagement_name: "Example Q3 Internal Red Team Exercise"
+authorized_by: "Jane Doe, CISO"
+
+# ISO 8601 timestamps (UTC assumed if no offset given). Execution is refused
+# outside this window.
+starts_at: "2026-08-01T00:00:00Z"
+ends_at: "2026-08-15T23:59:59Z"
+
+# Exact hostnames/IPs, or CIDR ranges. Execution is refused against any
+# target not covered by one of these. In this MVP, only "localhost" /
+# "127.0.0.1" is actually usable with --execute (remote execution isn't
+# implemented yet) -- but the allow-list is still checked regardless.
+allowed_targets:
+  - "localhost"
+  - "127.0.0.1"

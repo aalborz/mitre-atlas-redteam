@@ -16,4 +16,6 @@ htmlcov/
 *.report.md
 /report.md
 /report.json
+/coverage-layer.json
+/authorization.yaml
 .DS_Store

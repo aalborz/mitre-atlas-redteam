@@ -1,0 +1,7 @@
+engagement_name: "Test Engagement"
+authorized_by: "Test Authorizer"
+starts_at: "2020-01-01T00:00:00Z"
+ends_at: "2035-01-01T00:00:00Z"
+allowed_targets:
+  - "localhost"
+  - "10.0.0.0/8"
