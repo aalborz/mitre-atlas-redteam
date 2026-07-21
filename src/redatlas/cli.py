@@ -19,14 +19,24 @@ model_app = typer.Typer(
     add_completion=False, help="Generate threat models from a system description."
 )
 chat_app = typer.Typer(add_completion=False, help="Interactive red-team advisor chat.")
+coverage_app = typer.Typer(
+    add_completion=False, help="Coverage/gap dashboard against your detections."
+)
 app.add_typer(data_app, name="data")
 app.add_typer(model_app, name="model")
 app.add_typer(chat_app, name="chat")
+app.add_typer(coverage_app, name="coverage")
 
 console = Console()
 
 _FRAMEWORK_CHOICES = ["attack", "atlas", "all"]
 _DOMAIN_CHOICES = ["enterprise", "ics", "mobile"]
+_DOMAIN_TO_FRAMEWORK = {
+    "enterprise": Framework.ATTACK,
+    "ics": Framework.ATTACK,
+    "mobile": Framework.ATTACK,
+    "atlas": Framework.ATLAS,
+}
 
 
 def _parse_attack_domains(domains: str) -> tuple[Domain, ...]:
@@ -152,6 +162,46 @@ def _to_json(report) -> str:
     import json
 
     return json.dumps(report.to_dict(), indent=2)
+
+
+@coverage_app.command("report")
+def coverage_report(
+    covered_file: Path,
+    domain: str = typer.Option("enterprise", help="enterprise | ics | mobile | atlas"),
+    output: Path = typer.Option(Path("coverage-layer.json")),
+    name: str = typer.Option("redatlas coverage", help="Layer name shown in the Navigator."),
+) -> None:
+    """Generate an ATT&CK/ATLAS Navigator layer of covered vs. gap techniques."""
+    from redatlas.dashboard.coverage import compute_coverage, load_coverage
+    from redatlas.dashboard.navigator import write_layer
+
+    if not covered_file.exists():
+        console.print(f"[red]File not found:[/red] {covered_file}")
+        raise typer.Exit(code=1)
+    if domain not in _DOMAIN_TO_FRAMEWORK:
+        console.print(f"[red]Unknown domain:[/red] {domain}")
+        raise typer.Exit(code=1)
+
+    dom = Domain(domain)
+    framework = _DOMAIN_TO_FRAMEWORK[domain]
+
+    coverage_input = load_coverage(covered_file)
+    store = _load_store(
+        framework=framework.value, attack_domains="enterprise,ics,mobile", refresh=False
+    )
+    report = compute_coverage(store, set(coverage_input.covered), framework=framework, domain=dom)
+
+    write_layer(
+        report,
+        domain=dom,
+        name=name,
+        description=f"{report.covered_count}/{report.total} techniques covered",
+        path=output,
+    )
+    console.print(
+        f"[green]Wrote[/green] {output} — {report.covered_count}/{report.total} covered "
+        f"({report.gap_count} gaps)."
+    )
 
 
 @chat_app.command("start")
