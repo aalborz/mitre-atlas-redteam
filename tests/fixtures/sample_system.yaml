@@ -1,0 +1,38 @@
+name: Customer Support Chatbot Platform
+description: >
+  A customer-facing web app backed by an internet-facing API gateway, a
+  retrieval-augmented LLM chatbot service, and an internal customer database.
+components:
+  - name: Web Frontend
+    description: React SPA served to customers, calls the API gateway.
+    technologies: [React, TypeScript]
+    internet_facing: true
+  - name: API Gateway
+    description: Public REST API in front of internal services.
+    technologies: [Python, FastAPI]
+    internet_facing: true
+  - name: Customer Database
+    description: Stores customer profiles and support ticket history.
+    technologies: [PostgreSQL]
+    internet_facing: false
+data_flows:
+  - source: Web Frontend
+    destination: API Gateway
+    description: User chat messages and auth tokens.
+    sensitive: true
+  - source: API Gateway
+    destination: Customer Database
+    description: Ticket lookups and profile reads.
+    sensitive: true
+  - source: API Gateway
+    destination: LLM Chatbot Service
+    description: Forwards user prompts, receives generated responses.
+    sensitive: true
+trust_boundaries:
+  - Public internet to API Gateway
+  - API Gateway to internal services
+ai_ml_components:
+  - name: LLM Chatbot Service
+    description: Retrieval-augmented LLM that answers customer questions using ticket history and product docs.
+    model_type: LLM
+notes: Chatbot has tool access to look up ticket history by customer ID.

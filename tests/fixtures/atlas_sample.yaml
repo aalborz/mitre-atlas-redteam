@@ -1,0 +1,56 @@
+id: ATLAS
+name: Adversarial Threat Landscape for Artificial-Intelligence Systems
+format-version: 6.0.0
+version: test-fixture
+
+tactics:
+  AML.TA0000:
+    name: Reconnaissance
+    description: The adversary is trying to gather information about the AI system they can use to plan future operations.
+  AML.TA0002:
+    name: Resource Development
+    description: The adversary is trying to establish resources they can use to support operations.
+
+techniques:
+  AML.T0000:
+    name: Search for Victim's Publicly Available Research Materials
+    description: Adversaries may search publicly available research materials to gather information about a victim's AI system.
+  AML.T0002:
+    name: Acquire Public ML Artifacts
+    description: Adversaries may search for and acquire publicly available machine learning artifacts, including models and datasets.
+  AML.T0002.000:
+    name: Datasets
+    description: Adversaries may acquire public datasets to develop their own models or to use in an attack.
+  AML.T0043:
+    name: Craft Adversarial Data
+    description: Adversaries may craft adversarial data that causes an AI/ML model to make incorrect predictions, such as prompt injection payloads.
+
+mitigations:
+  AML.M0000:
+    name: Limit Public Release of Information
+    description: Limit the amount of technical information about an AI system that is publicly released.
+
+relationships:
+  AML.T0000:
+    achieves:
+      - source: AML.T0000
+        target: AML.TA0000
+  AML.T0002:
+    achieves:
+      - source: AML.T0002
+        target: AML.TA0002
+  AML.T0002.000:
+    specializes:
+      - source: AML.T0002.000
+        target: AML.T0002
+    achieves:
+      - source: AML.T0002.000
+        target: AML.TA0002
+  AML.T0043:
+    achieves:
+      - source: AML.T0043
+        target: AML.TA0002
+  AML.M0000:
+    mitigates:
+      - source: AML.M0000
+        target: AML.T0000
