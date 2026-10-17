@@ -43,6 +43,19 @@ CHAT_TOOLS = [
 ]
 
 
+# Tool results stay in the conversation and are re-sent on every later call, so
+# keep them short. Full ATT&CK mitigation lists can exceed 20K characters.
+MAX_SEARCH_RESULTS = 25
+MAX_TECHNIQUE_DESCRIPTION_CHARS = 1500
+MAX_MITIGATION_DESCRIPTION_CHARS = 300
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + " [...truncated]"
+
+
 def _framework_arg(value: str | None) -> Framework | None:
     if not value or value == "any":
         return None
@@ -54,7 +67,7 @@ def dispatch(store: DataStore, name: str, tool_input: dict) -> str:
         results = store.search(
             tool_input["query"],
             framework=_framework_arg(tool_input.get("framework")),
-            limit=tool_input.get("top_k", 10),
+            limit=min(tool_input.get("top_k", 10), MAX_SEARCH_RESULTS),
         )
         return json.dumps(
             [{"id": t.id, "name": t.name, "framework": t.framework.value} for t in results]
@@ -68,7 +81,7 @@ def dispatch(store: DataStore, name: str, tool_input: dict) -> str:
             {
                 "id": technique.id,
                 "name": technique.name,
-                "description": technique.description,
+                "description": _truncate(technique.description, MAX_TECHNIQUE_DESCRIPTION_CHARS),
                 "framework": technique.framework.value,
                 "tactic_ids": list(technique.tactic_ids),
                 "platforms": list(technique.platforms),
@@ -79,7 +92,14 @@ def dispatch(store: DataStore, name: str, tool_input: dict) -> str:
     if name == "get_mitigations":
         mitigations = store.get_mitigations_for(tool_input["technique_id"])
         return json.dumps(
-            [{"id": m.id, "name": m.name, "description": m.description} for m in mitigations]
+            [
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "description": _truncate(m.description, MAX_MITIGATION_DESCRIPTION_CHARS),
+                }
+                for m in mitigations
+            ]
         )
 
     return json.dumps({"error": f"Unknown tool {name!r}"})

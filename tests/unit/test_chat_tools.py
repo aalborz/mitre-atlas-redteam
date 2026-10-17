@@ -1,10 +1,12 @@
+import dataclasses
 import json
 from types import SimpleNamespace
 
 import pytest
 
 from redatlas.chat import advisor
-from redatlas.chat.tools import dispatch
+from redatlas.chat.advisor import trim_history
+from redatlas.chat.tools import MAX_SEARCH_RESULTS, dispatch
 from redatlas.llm.client import MissingAPIKeyError, get_client
 
 
@@ -47,6 +49,7 @@ class _FakeAnthropicClient:
 
     def __init__(self):
         self.calls = 0
+        self.requests = []
 
     class _Messages:
         def __init__(self, outer):
@@ -54,9 +57,17 @@ class _FakeAnthropicClient:
 
         def create(self, **kwargs):
             self.outer.calls += 1
+            self.outer.requests.append(kwargs)
+            usage = SimpleNamespace(
+                input_tokens=10,
+                cache_read_input_tokens=1000,
+                cache_creation_input_tokens=50,
+                output_tokens=20,
+            )
             if self.outer.calls == 1:
                 return SimpleNamespace(
                     stop_reason="tool_use",
+                    usage=usage,
                     content=[
                         SimpleNamespace(
                             type="tool_use",
@@ -68,6 +79,7 @@ class _FakeAnthropicClient:
                 )
             return SimpleNamespace(
                 stop_reason="end_turn",
+                usage=usage,
                 content=[SimpleNamespace(type="text", text="Based on T1566, watch for phishing.")],
             )
 
@@ -88,3 +100,62 @@ def test_run_repl_dispatches_tool_and_prints_final_answer(monkeypatch, sample_st
     captured = capsys.readouterr()
     assert "Based on T1566" in captured.out
     assert fake_client.calls == 2
+
+
+def test_run_repl_enables_caching_and_prints_token_usage(monkeypatch, sample_store, capsys):
+    fake_client = _FakeAnthropicClient()
+    monkeypatch.setattr(advisor, "get_client", lambda: fake_client)
+
+    inputs = iter(["What techniques involve phishing?", "exit"])
+    monkeypatch.setattr("builtins.input", lambda *_: next(inputs))
+
+    advisor.run_repl(sample_store)
+
+    assert all(r["cache_control"] == {"type": "ephemeral"} for r in fake_client.requests)
+    out = capsys.readouterr().out
+    assert "[tokens this turn] 2 API call(s) | input 20 | cache read 2,000" in out
+    assert "cache write 100 | output 40" in out
+    assert "[tokens this session]" in out
+
+
+def _exchange(n: int) -> list[dict]:
+    return [
+        {"role": "user", "content": f"question {n}"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": f"t{n}"}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{n}"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": f"answer {n}"}]},
+    ]
+
+
+def test_trim_history_leaves_short_history_alone():
+    messages = [m for n in range(3) for m in _exchange(n)]
+    assert trim_history(messages, max_exchanges=3, keep_exchanges=2) is messages
+
+
+def test_trim_history_drops_whole_old_exchanges():
+    messages = [m for n in range(5) for m in _exchange(n)]
+    trimmed = trim_history(messages, max_exchanges=4, keep_exchanges=2)
+    assert trimmed[0] == {"role": "user", "content": "question 3"}
+    assert len(trimmed) == 8
+
+
+def test_dispatch_caps_search_results(sample_store, monkeypatch):
+    seen = {}
+
+    def fake_search(query, *, framework=None, domain=None, limit=10):
+        seen["limit"] = limit
+        return []
+
+    monkeypatch.setattr(sample_store, "search", fake_search)
+    dispatch(sample_store, "search_techniques", {"query": "x", "top_k": 500})
+    assert seen["limit"] == MAX_SEARCH_RESULTS
+
+
+def test_dispatch_truncates_long_descriptions(sample_store, monkeypatch):
+    long_text = "a" * 5000
+    technique = sample_store.get_technique("T1566")
+    long_technique = dataclasses.replace(technique, description=long_text)
+    monkeypatch.setattr(sample_store, "get_technique", lambda _id: long_technique)
+    result = json.loads(dispatch(sample_store, "get_technique", {"technique_id": "T1566"}))
+    assert len(result["description"]) < 1600
+    assert result["description"].endswith("[...truncated]")
