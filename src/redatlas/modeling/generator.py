@@ -9,6 +9,11 @@ from redatlas.modeling.inputs import SystemModel
 from redatlas.modeling.report import AttackPath, TechniqueFinding, ThreatModelReport
 from redatlas.modeling.retrieval import build_corpus, retrieve_relevant
 
+
+class ReportGenerationError(RuntimeError):
+    pass
+
+
 THREAT_MODEL_SYSTEM_PROMPT = """\
 You are a red-team threat-modeling assistant. You are given a description of a \
 system and a list of candidate MITRE ATT&CK / MITRE ATLAS techniques retrieved \
@@ -99,11 +104,22 @@ def generate_report(
     client = get_client()
     response = client.messages.create(
         model=model or get_default_model(),
-        max_tokens=8000,
+        # Room for adaptive thinking, which counts toward max_tokens.
+        max_tokens=16000,
         system=THREAT_MODEL_SYSTEM_PROMPT,
         output_config={"format": {"type": "json_schema", "schema": REPORT_JSON_SCHEMA}},
         messages=[{"role": "user", "content": _render_user_prompt(system, context_block)}],
     )
+
+    if response.stop_reason == "refusal":
+        raise ReportGenerationError(
+            "The model declined to generate this report. Try rewording the system "
+            "description, or rerun with --model claude-sonnet-5-5."
+        )
+    if response.stop_reason == "max_tokens":
+        raise ReportGenerationError(
+            "The report was cut off before it finished. Try a smaller --top-k."
+        )
 
     text = next(block.text for block in response.content if block.type == "text")
     data = json.loads(text)

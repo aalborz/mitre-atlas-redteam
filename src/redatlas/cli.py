@@ -138,7 +138,7 @@ def model_generate(
     model: str | None = typer.Option(None, help="Override the Claude model."),
 ) -> None:
     """Generate a threat model report from a system/architecture YAML description."""
-    from redatlas.modeling.generator import generate_report
+    from redatlas.modeling.generator import ReportGenerationError, generate_report
     from redatlas.modeling.inputs import load_system_model
 
     if not system_file.exists():
@@ -151,7 +151,7 @@ def model_generate(
     try:
         with console.status("Generating threat model..."):
             report = generate_report(system, store, model=model, top_k=top_k)
-    except MissingAPIKeyError as exc:
+    except (MissingAPIKeyError, ReportGenerationError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 

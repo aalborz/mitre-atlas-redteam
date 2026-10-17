@@ -108,12 +108,14 @@ def run_repl(store: DataStore, *, model: str | None = None) -> None:
             continue
 
         messages = trim_history(messages + [{"role": "user", "content": user_input}])
+        turn_start = len(messages) - 1
         turn_usage = TokenUsage()
 
         while True:
             response = client.messages.create(
                 model=resolved_model,
-                max_tokens=2000,
+                # Room for adaptive thinking, which counts toward max_tokens.
+                max_tokens=4000,
                 tools=CHAT_TOOLS,
                 system=ADVISOR_SYSTEM_PROMPT,
                 # Automatic caching: marks the last block of the request, so each
@@ -123,6 +125,16 @@ def run_repl(store: DataStore, *, model: str | None = None) -> None:
                 messages=messages,
             )
             turn_usage.add(getattr(response, "usage", None))
+
+            if response.stop_reason == "refusal":
+                # Drop the declined question so it doesn't follow later turns.
+                messages = messages[:turn_start]
+                print(
+                    "assistant> [The model declined this request. Try rephrasing it, "
+                    "or rerun with --model claude-sonnet-5-5.]"
+                )
+                break
+
             messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":

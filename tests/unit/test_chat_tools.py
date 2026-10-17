@@ -159,3 +159,40 @@ def test_dispatch_truncates_long_descriptions(sample_store, monkeypatch):
     result = json.loads(dispatch(sample_store, "get_technique", {"technique_id": "T1566"}))
     assert len(result["description"]) < 1600
     assert result["description"].endswith("[...truncated]")
+
+
+class _RefusingClient:
+    def __init__(self):
+        self.requests = []
+
+    @property
+    def messages(self):
+        outer = self
+
+        class _Messages:
+            def create(self, **kwargs):
+                outer.requests.append([dict(m) for m in kwargs["messages"]])
+                if len(outer.requests) == 1:
+                    return SimpleNamespace(stop_reason="refusal", content=[], usage=None)
+                return SimpleNamespace(
+                    stop_reason="end_turn",
+                    content=[SimpleNamespace(type="text", text="Here is a safe answer.")],
+                    usage=None,
+                )
+
+        return _Messages()
+
+
+def test_run_repl_reports_refusal_and_drops_declined_question(monkeypatch, sample_store, capsys):
+    fake_client = _RefusingClient()
+    monkeypatch.setattr(advisor, "get_client", lambda: fake_client)
+
+    inputs = iter(["declined question", "next question", "exit"])
+    monkeypatch.setattr("builtins.input", lambda *_: next(inputs))
+
+    advisor.run_repl(sample_store)
+
+    out = capsys.readouterr().out
+    assert "The model declined this request" in out
+    assert "Here is a safe answer." in out
+    assert fake_client.requests[1] == [{"role": "user", "content": "next question"}]
